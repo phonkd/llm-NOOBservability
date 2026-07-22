@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -43,8 +43,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="llm-NOOBservability", lifespan=lifespan)
 
 
-@app.post("/api/ask")
-async def ask(req: AskRequest):
+def _stream(req: AskRequest) -> StreamingResponse:
     agent: NoobAgent = app.state.agent
 
     async def gen():
@@ -55,6 +54,25 @@ async def ask(req: AskRequest):
             yield json.dumps({"event": "fatal", "error": f"{type(e).__name__}: {e}"}) + "\n"
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+
+@app.post("/api/ask")
+async def ask(request: Request):
+    # Deliberately liberal: parse the raw body as JSON whatever the
+    # content-type — `curl -d '{...}'` sends x-www-form-urlencoded and a noob
+    # tool shouldn't fail on a missing header.
+    try:
+        body = json.loads(await request.body())
+        req = AskRequest.model_validate(body)
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as e:
+        raise HTTPException(422, f'body must be JSON like {{"question": "..."}} — {e}')
+    return _stream(req)
+
+
+@app.get("/api/ask")
+async def ask_get(q: str, since: str | None = None):
+    """One-liner form: /api/ask?q=ram+usage+201-mono (browser- and curl-friendly)."""
+    return _stream(AskRequest(question=q, since=since))
 
 
 @app.get("/api/health")
