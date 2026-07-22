@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "noobservability"
+version = "0.1.0"
+description = "Natural-language observability querier: NL -> LogQL/PromQL against Loki/Mimir, with a small local LLM"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "httpx",
+    "uvicorn",
+]
+
+[project.scripts]
+noob = "noobservability.cli:main"
+noob-server = "noobservability.api:serve"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/noobservability"]
