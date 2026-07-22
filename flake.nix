@@ -20,6 +20,12 @@
           dependencies = with pkgs.python3Packages; [ fastapi httpx uvicorn ];
           # No network in the sandbox; tests run against live Loki/Mimir anyway.
           doCheck = false;
+          meta = {
+            description = "Natural-language observability querier for Loki/Mimir";
+            homepage = "https://github.com/phonkd/llm-NOOBservability";
+            license = pkgs.lib.licenses.mit;
+            mainProgram = "noob";
+          };
         };
       });
 

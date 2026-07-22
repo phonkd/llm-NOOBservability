@@ -1,47 +1,39 @@
 # llm-NOOBservability
 
 Observability for giga noobs: ask your logs and metrics a question in plain
-language. A small local LLM (ollama) translates it to LogQL or PromQL, the
-service runs it **directly** against Loki / Mimir (no Grafana), self-corrects
-using the real label values and metric names when a query parses wrong or
-returns nothing, and summarizes the data.
+language. A small local LLM (ollama) translates it to LogQL or PromQL, runs it
+**directly** against Loki / Mimir / Prometheus (no Grafana), self-corrects
+against the real label values and metric names, and summarizes the result.
+The executed query is always shown — that's also how you learn LogQL.
 
 ```
 $ noob "did jellyfin log any errors in the last hour?"
+· route: loki
 · attempt 1 [loki] since 1h: {unit="jellyfin.service"} |~ "(?i)error"
   ✓ {"streams": 2, "lines": 14}
 
 Jellyfin logged 14 errors in the last hour, all from ...
 ```
 
-## How it stays honest at 9B parameters
+Or over HTTP:
 
-- **Grounding**: label names/values (Loki) and metric names (Mimir) are pulled
-  from the live servers and injected into the prompt — the model picks from
-  what exists instead of hallucinating selectors.
-- **Constrained decoding**: every generation is JSON-schema-constrained via
-  ollama's structured outputs; valid shape is guaranteed by grammar.
-- **Repair loop**: parse errors are fed back verbatim; empty results trigger
-  fuzzy suggestions ("`unit="jellyfin"` → did you mean `jellyfin.service`?")
-  for up to `NOOB_MAX_ATTEMPTS` tries.
-- **Caps**: lookback and line limits are clamped server-side; only read-only
-  API endpoints are used.
-- The executed query is always shown — wrong answers are visibly wrong, and
-  it's how you learn LogQL by osmosis.
+```
+curl 'http://host:8095/api/ask?q=which+host+used+the+most+cpu+today'
+```
 
-## Run
+## Quick start
 
-`noob-server` serves `POST /api/ask` (`{"question": "...", "since": "1h"?}`,
-NDJSON event stream: `grounding`, `attempt`, `query_error`, `empty`, `data`,
-`summary`, `done`) and `GET /api/health`. `noob "question" [--since 1h]
-[--json] [--save out.json]` is the CLI. Configuration is env vars
-(`NOOB_LOKI_URL`, `NOOB_MIMIR_URL` — include Mimir's `/prometheus` prefix,
-`NOOB_OLLAMA_URL`, `NOOB_MODEL`, `NOOB_PORT`, `NOOB_EXTRA_CONTEXT[_FILE]`, …);
-see `src/noobservability/config.py`. NixOS: `nixosModules.default` →
-`services.noobservability.*`.
+- **NixOS**: copy [`examples/flake.nix`](examples/flake.nix) —
+  `nixosModules.default` + `services.noobservability.*`.
+- **Anything else**: `pip install .`, set `NOOB_LOKI_URL`, `NOOB_MIMIR_URL`,
+  `NOOB_OLLAMA_URL`, run `noob-server` (or just `noob "question"`).
+- Pull a model first: `ollama pull qwen3.5:9b`.
 
-## Roadmap
+## Docs
 
-Phase 2: tiny chat web UI served from the same process — graph (uPlot) as soon
-as data arrives, JSON/CSV download. Phase 3: maybe MCP so other agents can use
-it.
+- [How it works](docs/how-it-works.md) — grounding, constrained decoding, the
+  repair loop, and why 9B parameters are enough.
+- [API, CLI, configuration](docs/api.md) — endpoints, event stream, env vars,
+  NixOS options.
+
+MIT licensed.
