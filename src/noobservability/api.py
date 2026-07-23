@@ -2,12 +2,16 @@
 
 import json
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 from .agent import NoobAgent
 from .config import Config
@@ -92,6 +96,14 @@ async def health():
             out[name] = f"error: {type(e).__name__}"
     out["model"] = agent.llm.model
     return out
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/", include_in_schema=False)
+async def index():
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 def serve():
