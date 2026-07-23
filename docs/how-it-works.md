@@ -37,9 +37,21 @@ enforcement has proven leaky in some ollama versions — notably, sending
 empty result gets fuzzy suggestions computed from the grounding cache: for
 each label matcher, the nearest real values (`unit="jellyfin"` → *did you mean
 `jellyfin.service`?*); for PromQL, near-miss metric names. Repeated identical
-queries are detected and called out. If a result is empty but every matcher
-refers to values that really exist, the empty result is accepted as the
-answer ("no errors in the last hour") instead of burning retries.
+queries are detected and called out.
+
+For PromQL, an empty result additionally triggers *per-metric series
+grounding*: every real metric in the query gets its actual label sets fetched
+from `/api/v1/series` and fed back. This catches the classic small-model trap
+where the metric is right but the identity label is wrong — e.g.
+`instance=~"203-media.*"` when that metric only carries
+`hostname="203-media"` and its `instance` is a scrape address like
+`127.0.0.1:9835`. Global label inventories can't catch that; only the
+metric's own series can.
+
+If a result is empty but every matcher actually selects values (regex
+matchers are evaluated, not string-compared) — and for PromQL, some real
+series of the metric satisfies all matchers — the empty result is accepted as
+the answer ("no errors in the last hour") instead of burning retries.
 
 **Caps.** Lookback is clamped to `NOOB_MAX_RANGE_HOURS`, Loki line count to
 `NOOB_LOKI_LIMIT`, and range-query steps are chosen to keep ~250 points per

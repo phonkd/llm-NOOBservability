@@ -62,6 +62,17 @@ class Mimir:
         r.raise_for_status()
         return r.json().get("data") or []
 
+    async def series(self, match: str, start: float, end: float, limit: int = 200) -> list[dict]:
+        """Label sets of series matching a selector, e.g. 'nvidia_smi_gpu_info'."""
+        r = await self.http.get(
+            f"{self.base}/api/v1/series",
+            params={"match[]": match, "start": int(start), "end": int(end), "limit": limit},
+        )
+        if r.status_code == 400:
+            return []
+        r.raise_for_status()
+        return r.json().get("data") or []
+
     async def query_range(self, query: str, start: float, end: float, step: float) -> dict:
         r = await self.http.get(
             f"{self.base}/api/v1/query_range",

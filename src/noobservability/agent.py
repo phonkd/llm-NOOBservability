@@ -98,6 +98,8 @@ Rules:
 - Counters (ending _total) need rate(x[5m]); gauges are used directly.
 - Aggregate to few series: sum by (hostname) (...), avg by (...).
 - "most / highest / top" -> topk(3, ...).
+- Select a machine by its hostname label: {{hostname="203-media"}}. The
+  instance label is often a scrape address like 127.0.0.1:9835 — avoid it.
 
 Examples:
 - CPU usage per host:  sum by (hostname) (rate(node_cpu_seconds_total{{mode!="idle"}}[5m]))
@@ -192,6 +194,7 @@ Return only JSON."""
             hints = g.suggest_values(q["query"])
             if target == "mimir":
                 hints |= g.suggest_metrics(q["query"])
+                hints |= await g.suggest_series(q["query"], start, end)
             if not hints:
                 # Every matcher points at values/metrics that really exist, and
                 # the result is still empty: that IS the answer ("no errors"),

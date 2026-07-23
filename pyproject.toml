@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "noobservability"
-version = "0.2.0"
+version = "0.2.1"
 description = "Natural-language observability querier: NL -> LogQL/PromQL against Loki/Mimir, with a small local LLM"
 license = "MIT"
 requires-python = ">=3.11"

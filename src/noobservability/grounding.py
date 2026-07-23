@@ -86,16 +86,18 @@ class Grounding:
     def suggest_values(self, query: str) -> dict[str, list[str]]:
         """For each label matcher in a failed query, nearest real values."""
         suggestions: dict[str, list[str]] = {}
-        for label, value in re.findall(r'(\w+)\s*=~?\s*"([^"]*)"', query):
+        for label, op, value in _matchers(query):
+            if op.startswith("!"):
+                continue
             known = self.loki_labels.get(label) or self.mimir_labels.get(label)
-            if not known or value in known:
+            if not known or _matcher_hits(op, value, known):
                 continue
             close = difflib.get_close_matches(value, known, n=5, cutoff=0.3)
             # Substring hits matter too: "jellyfin" vs "jellyfin.service".
             subs = [v for v in known if value.lower() in v.lower()]
             merged = list(dict.fromkeys(subs + close))
             if merged:
-                suggestions[f'{label}="{value}"'] = merged[:5]
+                suggestions[f'{label}{op}"{value}"'] = merged[:5]
         return suggestions
 
 
@@ -103,7 +105,9 @@ class Grounding:
         """For identifiers in a PromQL query that aren't real metrics, nearest real ones."""
         known = set(self.metric_names)
         suggestions: dict[str, list[str]] = {}
-        for ident in set(re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{4,}", query)):
+        # Strip quoted strings first: label values aren't metric names.
+        bare = re.sub(r'"[^"]*"', '""', query)
+        for ident in set(re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{4,}", bare)):
             if ident in known or ident in _PROMQL_WORDS:
                 continue
             close = difflib.get_close_matches(ident, self.metric_names, n=5, cutoff=0.5)
@@ -112,6 +116,66 @@ class Grounding:
             if merged:
                 suggestions[ident] = merged[:5]
         return suggestions
+
+    async def suggest_series(self, query: str, start: float, end: float) -> dict[str, list[str]]:
+        """For each real metric in an empty-result PromQL query, its actual label sets.
+
+        This is the fix for the classic small-model trap: the metric is right
+        but the identity label is wrong (instance="203-media" when the series
+        only carries hostname="203-media"). Global label lists can't catch it —
+        only this metric's own series can.
+        """
+        known = set(self.metric_names)
+        bare = re.sub(r'"[^"]*"', '""', query)
+        matchers = _matchers(query)
+        out: dict[str, list[str]] = {}
+        for metric in set(re.findall(r"[a-zA-Z_][a-zA-Z0-9_]{4,}", bare)) & known:
+            series = await self.mimir.series(metric, start, end)
+            if not series:
+                out[metric] = ["metric has no series in this time range"]
+                continue
+            # If some series satisfies every matcher, the query is consistent
+            # with reality — empty is then a true answer, not a labeling bug.
+            if any(_series_matches(s, matchers) for s in series):
+                continue
+            sets = []
+            for s in series[:5]:
+                labels = {k: v for k, v in s.items() if k != "__name__"}
+                sets.append("{" + ", ".join(f'{k}="{v}"' for k, v in sorted(labels.items())) + "}")
+            out[f"real series of {metric}"] = list(dict.fromkeys(sets))
+        return out
+
+
+def _matchers(query: str) -> list[tuple[str, str, str]]:
+    return re.findall(r'(\w+)\s*(=~|!~|!=|=)\s*"([^"]*)"', query)
+
+
+def _matcher_hits(op: str, value: str, known: list[str]) -> bool:
+    """Does this =/=~ matcher select at least one of the known values?"""
+    if op == "=":
+        return value in known
+    try:  # PromQL/LogQL regex matchers are fully anchored.
+        pat = re.compile(value)
+    except re.error:
+        return False
+    return any(pat.fullmatch(v) for v in known)
+
+
+def _series_matches(series: dict, matchers: list[tuple[str, str, str]]) -> bool:
+    for label, op, value in matchers:
+        got = series.get(label, "")
+        if op in ("=~", "!~"):
+            try:
+                ok = bool(re.fullmatch(value, got))
+            except re.error:
+                ok = False
+        else:
+            ok = got == value
+        if op.startswith("!"):
+            ok = not ok
+        if not ok:
+            return False
+    return True
 
 
 _PROMQL_WORDS = {
